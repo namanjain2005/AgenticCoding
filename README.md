@@ -1,6 +1,6 @@
-# PrivacyFirstAgenticCode
+# AgenticCodingAgent
 
-A lightweight CLI chatbot powered by Google Gemini AI, focusing on agentic capabilities and privacy-first local interactions.
+A lightweight CLI chatbot powered by Google Gemini AI with agentic loop capabilities for iterative problem-solving.
 
 ## Features
 

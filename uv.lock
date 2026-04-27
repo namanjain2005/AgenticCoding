@@ -323,7 +323,7 @@ wheels = [
 ]
 
 [[package]]
-name = "privacyfirstagenticcode"
+name = "agenticcodingagent"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
