@@ -13,7 +13,14 @@ def main():
         print('Example: python main.py "3 + 5"')
         return
 
-    expression = " ".join(sys.argv[1:])
+    # Join the command‑line arguments to form the expression.
+    # When the expression is passed quoted on the command line, the quotes become part of the first
+    # and last tokens (e.g. "\"2 + 2\"").  Strip a single pair of surrounding quotes if present.
+    expression = " ".join(sys.argv[1:]).strip()
+    if (expression.startswith('"') and expression.endswith('"')) or (
+            expression.startswith("'") and expression.endswith("'")):
+        expression = expression[1:-1]
+
     try:
         result = calculator.evaluate(expression)
         if result is not None:

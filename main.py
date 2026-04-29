@@ -1,6 +1,7 @@
 import os
 import argparse
 import json
+import re
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -31,23 +32,35 @@ WORKING_DIRECTORY = './calculator'
 
 def to_openai_tool(gemini_schema):
     """Converts Gemini FunctionDeclaration to OpenAI tool format automatically."""
-    params = gemini_schema.parameters
-    props = {}
-    for k, v in params.properties.items():
-        # Handle types (Gemini uses uppercase/Enums, OpenAI uses lowercase strings)
-        prop_type = v.type.lower() if hasattr(v.type, 'lower') else str(v.type).lower()
-        props[k] = {"type": prop_type, "description": v.description}
+    
+    def convert_schema(s):
+        if s is None:
+            return None
         
+        # Determine the type string
+        res = {}
+        if s.type:
+            res["type"] = s.type.lower() if hasattr(s.type, 'lower') else str(s.type).lower()
+        
+        if s.description:
+            res["description"] = s.description
+            
+        if res.get("type") == "object" and s.properties:
+            res["properties"] = {k: convert_schema(v) for k, v in s.properties.items()}
+            if s.required:
+                res["required"] = s.required
+                
+        if res.get("type") == "array" and s.items:
+            res["items"] = convert_schema(s.items)
+            
+        return res
+
     return {
         "type": "function",
         "function": {
             "name": gemini_schema.name,
             "description": gemini_schema.description,
-            "parameters": {
-                "type": "object",
-                "properties": props,
-                "required": params.required or []
-            }
+            "parameters": convert_schema(gemini_schema.parameters)
         }
     }
 
@@ -88,12 +101,41 @@ def main():
             extra_body={"reasoning": {"enabled": True}}
         )
 
+        # Handle empty or errored response
+        if not response.choices:
+            print(f"Error: API returned no choices. Response: {response}")
+            break
+
         assistant_msg = response.choices[0].message
         
         # Preserve reasoning_details if available (specific to OpenRouter)
         reasoning_details = getattr(assistant_msg, "reasoning_details", None)
         if not reasoning_details and hasattr(assistant_msg, "model_extra"):
             reasoning_details = assistant_msg.model_extra.get("reasoning_details")
+
+        # --- LOGGING: Show what the model is doing ---
+        print(f"\n[Iteration {iteration + 1}]")
+        if reasoning_details:
+            print("--- Thought ---")
+            if isinstance(reasoning_details, list):
+                for item in reasoning_details:
+                    if isinstance(item, dict) and 'text' in item:
+                        print(item['text'])
+                    else:
+                        print(str(item))
+            else:
+                print(str(reasoning_details))
+            print("---------------")
+        elif assistant_msg.content and "<thought>" in assistant_msg.content:
+            # Handle models that put thoughts in content
+            thought = re.search(r'<thought>(.*?)</thought>', assistant_msg.content, re.DOTALL)
+            if thought:
+                print(f"--- Thought ---\n{thought.group(1).strip()}\n---------------")
+        
+        if assistant_msg.tool_calls:
+            print(f"Agent is calling {len(assistant_msg.tool_calls)} function(s):")
+        elif assistant_msg.content:
+            print(f"Agent response: {assistant_msg.content[:200]}...")
 
         # Create assistant message dictionary for history
         assistant_dict = {
@@ -126,14 +168,15 @@ def main():
 
         # Process Tool Calls
         for tool_call in assistant_msg.tool_calls:
-            func_name = tool_call.function.name
+            # Sanitize function name (fixes model hallucinations like <|channel|>)
+            func_name = tool_call.function.name.split('<')[0].split('?')[0].split(' ')[0].strip()
+            
             try:
                 func_args = json.loads(tool_call.function.arguments)
             except Exception:
                 func_args = {}
             
-            if args.verbose:
-                print(f" - Calling function: {func_name}({func_args})")
+            print(f" > Call: {func_name}({func_args})")
 
             # Inject the working directory into the arguments as required by functions
             func_args['working_directory'] = WORKING_DIRECTORY
@@ -146,8 +189,7 @@ def main():
             except Exception as e:
                 result = f"Error executing function: {e}"
 
-            if args.verbose:
-                print(f"-> Result length: {len(str(result))} characters")
+            print(f" < Result: {str(result)[:500]}{'...' if len(str(result)) > 500 else ''}")
 
             # Append the tool result to history
             messages.append({
