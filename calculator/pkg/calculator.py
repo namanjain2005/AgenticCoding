@@ -40,7 +40,7 @@ class Calculator:
                 except ValueError:
                     raise ValueError(f"invalid token: {token}")
 
-        while operators:
+        while operators::
             self._apply_operator(operators, values)
 
         if len(values) != 1:
